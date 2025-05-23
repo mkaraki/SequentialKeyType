@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
@@ -17,7 +18,7 @@ namespace SequentialKeyType
         {
             combo_layout.Items.Clear();
 
-            uint[] layouts = KeyCodeUtils.GetUsableKeyboardLayouts().ToArray();
+            var layouts = KeyCodeUtils.GetUsableKeyboardLayouts().ToArray();
 
             if (layouts.Length == 0)
             {
@@ -26,18 +27,24 @@ namespace SequentialKeyType
                 return;
             }
 
+            List<uint> idxSearch = new List<uint>();
+
             foreach (var layout in layouts)
             {
-                combo_layout.Items.Add(layout.ToString("X8"));
+                var id = layout.Item1;
+                var name = layout.Item2;
+                combo_layout.Items.Add($"{id:X4} - {name}");
+                idxSearch.Add(id);
             }
 
             var currentLayout = KeyCodeUtils.GetCurrentKeyboardLayout();
-            var currentIdx = Array.IndexOf(layouts, currentLayout);
+            var currentIdx = Array.IndexOf(idxSearch.ToArray(), currentLayout);
 
             if (currentIdx == -1)
             {
+                System.Diagnostics.Debug.WriteLine($"[ERR] No current layout {currentLayout:x8} exists in layout list.");
                 MessageBox.Show(
-                    "Unexpected error. Current keyboard layout isn't in usable layout list. This may cause some problems.",
+                    $"Unexpected error. Current keyboard layout isn't in usable layout list. This may cause some problems.",
                     "Sequential Key Type", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
             else
@@ -55,24 +62,15 @@ namespace SequentialKeyType
 
             try
             {
-                var text = tbox_text.Text;
-                var delay = (int)num_delay.Value;
-                if (!uint.TryParse(combo_layout.Text, NumberStyles.HexNumber, null, out var layout))
+                var packedKeyCodes = GetPackedKeyboardInput();
+                if (packedKeyCodes == null)
                 {
-                    MessageBox.Show("Invalid keyboard layout.", "Sequential Key Type", MessageBoxButtons.OK, MessageBoxIcon.Error);
                     return;
                 }
 
-                if (string.IsNullOrEmpty(text))
-                {
-                    MessageBox.Show("Text cannot be empty.", "Sequential Key Type", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                    return;
-                }
-
-                var keyUtil = new KeyCodeUtils(layout);
-
-                var packedKeyCodes = keyUtil.GetVirtualKeyCodes(text).ToArray();
                 var keyCodes = KeyCodeUtils.ExtractPackedKeyboardInputToSendInputFormat(packedKeyCodes).ToArray();
+
+                var delay = (int)num_delay.Value;
 
                 await Task.Delay(delay * 1000 /* Sec to ms */);
 
@@ -82,7 +80,7 @@ namespace SequentialKeyType
 
                     if (result != 0)
                     {
-                        MessageBox.Show($"Failed to send key. Error: {result:X8}\r\nProcess Aborted.", "Sequential Key Type", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        MessageBox.Show($"Failed to send key. Error: 0x{result:X8}\r\nProcess Aborted.", "Sequential Key Type", MessageBoxButtons.OK, MessageBoxIcon.Error);
                         return;
                     }
 
@@ -122,23 +120,11 @@ namespace SequentialKeyType
 
             try
             {
-                var text = tbox_text.Text;
-                var delay = (int)num_delay.Value;
-                if (!uint.TryParse(combo_layout.Text, NumberStyles.HexNumber, null, out var layout))
+                var packedKeyCodes = GetPackedKeyboardInput();
+                if (packedKeyCodes == null)
                 {
-                    MessageBox.Show("Invalid keyboard layout.", "Sequential Key Type", MessageBoxButtons.OK, MessageBoxIcon.Error);
                     return;
                 }
-
-                if (string.IsNullOrEmpty(text))
-                {
-                    MessageBox.Show("Text cannot be empty.", "Sequential Key Type", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                    return;
-                }
-
-                var keyUtil = new KeyCodeUtils(layout);
-
-                var packedKeyCodes = keyUtil.GetVirtualKeyCodes(text).ToArray();
 
                 using (var form = new Debug(packedKeyCodes))
                 {
@@ -156,6 +142,26 @@ namespace SequentialKeyType
                 combo_layout.Enabled = true;
                 btn_type.Enabled = true;
             }
+        }
+
+        private KEYBDINPUT[] GetPackedKeyboardInput()
+        {
+            var text = tbox_text.Text;
+            if (!uint.TryParse(combo_layout.Text.Split(' ')[0], NumberStyles.HexNumber, null, out var layout))
+            {
+                MessageBox.Show("Invalid keyboard layout.", "Sequential Key Type", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return null;
+            }
+
+            if (string.IsNullOrEmpty(text))
+            {
+                MessageBox.Show("Text cannot be empty.", "Sequential Key Type", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return null;
+            }
+
+            var keyUtil = new KeyCodeUtils(layout);
+
+            return keyUtil.GetVirtualKeyCodes(text).ToArray();
         }
     }
 }

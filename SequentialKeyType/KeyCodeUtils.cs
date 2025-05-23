@@ -1,59 +1,33 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
+using System.Windows.Forms;
 
 namespace SequentialKeyType
 {
     internal class KeyCodeUtils
     {
         [DllImport("user32.dll")]
-        private static extern int GetKeyboardLayoutList(int nBuff, [Out] UIntPtr[] lpList);
-
-        [DllImport("user32.dll")]
-        private static extern UIntPtr GetKeyboardLayout(uint idThread);
-
-        [DllImport("user32.dll")]
         private static extern ushort VkKeyScanExW(char ch, UIntPtr dwhkl);
 
         [DllImport("user32.dll", SetLastError = true)]
         private static extern uint SendInput(uint cInputs, [MarshalAs(UnmanagedType.LPArray)] INPUT[] pInputs, int cbSize);
 
-        [DllImport("kernel32.dll")]
-        private static extern uint GetLastError();
-
-        public static IEnumerable<uint> GetUsableKeyboardLayouts()
+        public static IEnumerable<(uint, string)> GetUsableKeyboardLayouts()
         {
-            UIntPtr[] layouts = new UIntPtr[32];
-            int count = GetKeyboardLayoutList(layouts.Length, layouts);
-
-            for (int i = 0; i < count; i++)
+            foreach (InputLanguage locale in InputLanguage.InstalledInputLanguages)
             {
-                var layout = layouts[i];
-                var layoutUint = layout.ToUInt32();
-                // Filter out layouts that are not usable
-                if (layoutUint != 0)
-                {
-                    yield return layoutUint;
-                }
+                yield return (
+                    (uint)locale.Culture.KeyboardLayoutId,
+                    locale.LayoutName
+                );
             }
         }
 
         public static uint GetCurrentKeyboardLayout()
         {
-            var layout = GetKeyboardLayout(0 /* Current thread */);
-            var layoutUint = layout.ToUInt32();
-
-            /*
-             * This logic won't use, now...
-             *
-             * // Get first 16 bits of device physical layout
-             * var devLayout = layoutUint >> 16;
-             *
-             * // Get last 16 bits of language identifier
-             * var langId = layoutUint & 0xFFFF;
-             */
-
-            return layoutUint;
+            var lang = InputLanguage.CurrentInputLanguage;
+            return (uint)lang.Culture.KeyboardLayoutId;
         }
 
         public uint LocaleId { get; }
@@ -182,6 +156,7 @@ namespace SequentialKeyType
 
         public KEYBDINPUT GetVirtualKeyCode(char ch)
         {
+            // ToDo: Virtual Key method might not work in different keyboard layout VM or app. Should be checked.
             var key = VkKeyScanExW(ch, new UIntPtr(LocaleId));
 
             if (key == 0xFFFF /* Both high and low is -1 */)
@@ -209,7 +184,10 @@ namespace SequentialKeyType
         {
             // \r\n make double new line and \n will put unknown "9" before new line.
             // So use \r only.
-            str = str.Replace("\r\n", "\r");
+            str = str
+                .Replace("\r\n", "\r")
+                .Replace("\n", "\r")
+                ;
 
             foreach (var ch in str)
             {
@@ -218,7 +196,7 @@ namespace SequentialKeyType
             }
         }
 
-        public static uint SendKey(KEYBDINPUT keybdInput)
+        public static int SendKey(KEYBDINPUT keybdInput)
         {
             INPUT input = new INPUT
             {
@@ -229,10 +207,10 @@ namespace SequentialKeyType
             inputs[0] = input;
             var cnt = SendInput(1, inputs, Marshal.SizeOf(typeof(INPUT)));
 
-            return cnt == 1 ? 0 : GetLastError();
+            return cnt == 1 ? 0 : Marshal.GetLastWin32Error();
         }
 
-        public static uint SendKeys(KEYBDINPUT[] keybdInputs)
+        public static int SendKeys(KEYBDINPUT[] keybdInputs)
         {
             uint seqCnt = (uint)keybdInputs.Length;
             INPUT[] inputs = new INPUT[keybdInputs.Length];
@@ -245,7 +223,7 @@ namespace SequentialKeyType
                 };
             }
             var cnt = SendInput(seqCnt, inputs, Marshal.SizeOf(typeof(INPUT)));
-            return cnt == seqCnt ? 0 : GetLastError();
+            return cnt == seqCnt ? 0 : Marshal.GetLastWin32Error();
         }
 
         private struct INPUT
